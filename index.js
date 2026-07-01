@@ -18,6 +18,18 @@ class ModuleInstance extends InstanceBase {
 		this.zones = [];
 		this.lightGroups = [];
 		this.scenes = [];
+
+		// Safety net: node-hue-api throws from background sockets/timers (UPnP
+		// discovery, polling) that we can't always attach a .catch() to. Without
+		// this, a single unhandled rejection terminates the whole module process
+		// and Companion relaunches it in a crash loop. Log it instead of dying.
+		if (!ModuleInstance._rejectionGuardInstalled) {
+			ModuleInstance._rejectionGuardInstalled = true;
+			process.on('unhandledRejection', (reason) => {
+				const message = reason && reason.message ? reason.message : String(reason);
+				this.log('error', 'Unhandled rejection (suppressed to avoid crash loop): ' + message);
+			});
+		}
 	}
 
 	async init(config) {
@@ -76,10 +88,12 @@ class ModuleInstance extends InstanceBase {
 		this.config = config;
 
 		if (this.config.createuser) {
+			// createUser() persists the generated username and re-inits itself
+			// on success, so don't also call init() here (double init / race).
 			this.createUser();
+		} else {
+			this.init(this.config);
 		}
-
-		this.init(this.config);
 	}
 
 	// Return config fields for web config
@@ -124,12 +138,17 @@ class ModuleInstance extends InstanceBase {
 
 	async discoverBridges() {
 		this.discoveredBridges = []
-		v3.discovery.upnpSearch().then((results) => {
+		try {
+			const results = await v3.discovery.upnpSearch();
 			results.forEach((bridge) => {
 				this.discoveredBridges.push(bridge);
 			})
 			// TODO: how to update current config field
-		});
+		} catch (err) {
+			// Discovery is best-effort and commonly fails (multicast blocked, VPN,
+			// wrong interface). Never let it take down the module process.
+			this.log('debug', 'Bridge discovery failed: ' + (err && err.message ? err.message : err));
+		}
 	}
 
 	async createUser() {
@@ -182,8 +201,11 @@ class ModuleInstance extends InstanceBase {
 			}
 			
 			this.checkFeedbacks('light');
+		}).catch((err) => {
+			this.log('error', 'Failed to poll lights: ' + (err && err.message ? err.message : err));
+			this.updateStatus(InstanceStatus.ConnectionFailure, 'Lost connection to bridge');
 		});
-	
+
 		this.api.groups.getAll().then((groups) => {
 			var rooms = [];
 			var zones = [];
@@ -225,8 +247,11 @@ class ModuleInstance extends InstanceBase {
 			this.checkFeedbacks('room');
 			this.checkFeedbacks('zone');
 			this.checkFeedbacks('group');
+		}).catch((err) => {
+			this.log('error', 'Failed to poll groups: ' + (err && err.message ? err.message : err));
+			this.updateStatus(InstanceStatus.ConnectionFailure, 'Lost connection to bridge');
 		});
-	
+
 		this.api.scenes.getAll().then((scenes) => {
 			var paramsChanged = false;
 			if (this.scenes.length != scenes.length) {
@@ -242,8 +267,11 @@ class ModuleInstance extends InstanceBase {
 			}
 			
 			this.checkFeedbacks('scene');
+		}).catch((err) => {
+			this.log('error', 'Failed to poll scenes: ' + (err && err.message ? err.message : err));
+			this.updateStatus(InstanceStatus.ConnectionFailure, 'Lost connection to bridge');
 		});
-	
+
 		this.updateStatus(InstanceStatus.Ok);
 	}
 
