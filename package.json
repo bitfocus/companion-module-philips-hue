@@ -11,11 +11,15 @@
 		"url": "git+https://github.com/bitfocus/companion-module-philips-hue.git"
 	},
 	"dependencies": {
-		"@companion-module/base": "~1.4.0",
+		"@companion-module/base": "~1.15.0",
 		"node-hue-api": "^4.0.11"
 	},
 	"devDependencies": {
-		"@companion-module/tools": "^2.8.0"
+		"@companion-module/tools": "^2.9.0",
+		"prettier": "^3.6.2"
 	},
-	"prettier": "@companion-module/tools/.prettierrc.json"
+	"prettier": "@companion-module/tools/.prettierrc.json",
+	"engines": {
+		"node": "^26.5"
+	}
 }
